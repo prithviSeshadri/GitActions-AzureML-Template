@@ -1,0 +1,141 @@
+# Workflow Name: Step 1-Promote Models
+# This GitHub Actions workflow promotes machine learning models from a source environment (e.g., DEV) to a destination environment (e.g., PROD).
+# It supports downloading models from a source Azure ML workspace and uploading them to a destination Azure ML workspace.
+
+name: 'Step 1-Promote Models'
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Source environment: (DevInfraTest), DEV, Test'
+        required: true
+
+jobs:
+  # Job 1: Download production credentials
+  download_prod_creds:
+    runs-on: ubuntu-latest
+    environment: 'Prod'
+    outputs:
+      output1: ${{ steps.create_Prod_secret_variable.outputs.cip }} # Encoded CLIENT_ID
+      output2: ${{ steps.create_Prod_secret_variable.outputs.csp }} # Encoded CLIENT_SECRET
+      output3: ${{ steps.create_Prod_secret_variable.outputs.sip }} # Encoded SUBSCRIPTION_ID
+      output4: ${{ steps.create_Prod_secret_variable.outputs.tip }} # Encoded TENANT_ID
+
+    env:
+      MODEL_NAME: '' # Name of the model to promote "with .pkl"
+      MODEL_FORMAT: 'pkl' # Format of the model (e.g., pkl, ckpt, onnx)
+      DEST_WS: '' # Destination Azure ML workspace name
+      DEST_RG: '' # Destination resource group name
+
+    steps:
+      # Step 1: Checkout the repository
+      - id: Check_Out_Repository
+        uses: actions/checkout@v2
+
+      # Step 2: Install Azure CLI and required extensions
+      - name: Install_az_cli_version
+        run: |
+          sudo apt remove azure-cli -y && sudo apt autoremove -y;
+          sudo apt-get update;
+          sudo apt-get install ca-certificates curl apt-transport-https lsb-release gnupg;
+          curl -sL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/microsoft.gpg > /dev/null;
+          AZ_REPO=$(lsb_release -cs);
+          echo "deb [arch=amd64] https://packages.microsoft.com/repos/azure-cli/ $AZ_REPO main" | sudo tee /etc/apt/sources.list.d/azure-cli.list;
+          sudo apt-get update;
+          apt-cache policy azure-cli;
+          sudo apt-get install azure-cli;
+          az extension remove -n azure-devops
+          az extension add -n azure-devops
+        shell: bash
+
+      # Step 3: Create encoded production credentials as outputs
+      - id: create_Prod_secret_variable
+        run: |
+          echo "cip=$(echo -n '${{ secrets.CLIENT_ID }}' | base64 | base64)" >> $GITHUB_OUTPUT
+          echo "csp=$(echo -n '${{ secrets.CLIENT_SECRET }}' | base64 | base64)" >> $GITHUB_OUTPUT
+          echo "sip=$(echo -n '${{ secrets.SUBSCRIPTION_ID }}' | base64 | base64)" >> $GITHUB_OUTPUT
+          echo "tip=$(echo -n '${{ secrets.TENANT_ID }}' | base64 | base64)" >> $GITHUB_OUTPUT
+
+  # Job 2: Promote model from DEV to PROD
+  dev_promote_model:
+    runs-on: ubuntu-latest
+    needs: download_prod_creds # Depends on the completion of the download_prod_creds job
+    environment: 'DEV'
+
+    env:
+      MODEL_NAME: '' # Name of the model to promote "with .pkl"
+      MODEL_FORMAT: 'pkl' # Format of the model (e.g., pkl, ckpt, onnx)
+      SOURCE_WS: '' # Source Azure ML workspace name
+      SOURCE_RG: '' # Source resource group name
+      DEST_WS: '' # Destination Azure ML workspace name
+      DEST_RG: '' # Destination resource group name
+
+    steps:
+      # Step 1: Checkout the repository
+      - id: Check_Out_Repository
+        uses: actions/checkout@v2
+
+      # Step 2: Install Azure CLI and required extensions
+      - id: Install_az_cli
+        run: |
+          sudo apt remove azure-cli -y && sudo apt autoremove -y;
+          sudo apt-get update;
+          sudo apt-get install ca-certificates curl apt-transport-https lsb-release gnupg;
+          curl -sL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/microsoft.gpg > /dev/null;
+          AZ_REPO=$(lsb_release -cs);
+          echo "deb [arch=amd64] https://packages.microsoft.com/repos/azure-cli/ $AZ_REPO main" | sudo tee /etc/apt/sources.list.d/azure-cli.list;
+          sudo apt-get update;
+          apt-cache policy azure-cli;
+          sudo apt-get install azure-cli;
+          az extension remove -n azure-devops
+          az extension add -n azure-devops
+        shell: bash
+
+      # Step 3: Login to Azure using service principal credentials
+      - name: Login to Azure
+        run: |
+          az login --service-principal --username ${{ secrets.CLIENT_ID }} --tenant ${{ secrets.TENANT_ID }} --password ${{ secrets.CLIENT_SECRET }}
+          az account set --subscription=${{ secrets.SUBSCRIPTION_ID }}
+
+      # Step 4: Download the model from the source workspace
+      - name: Download model from source workspace
+        run: |
+          az extension add -n azure-cli-ml
+          workspace_params="--workspace-name ${{ env.SOURCE_WS }} --resource-group ${{ env.SOURCE_RG }} --subscription-id ${{ secrets.SUBSCRIPTION_ID }}"
+          MODEL=$(az ml model list --model-name ${{ env.MODEL_NAME }} $workspace_params -l -otsv --query '[].{i:id}' | tr -d '\r')
+          echo $MODEL
+          VERSION=$(az ml model list --model-name ${{ env.MODEL_NAME }} $workspace_params -l -otsv --query '[].{i:version}')
+          echo $VERSION
+          az ml model download --model-id $MODEL --target-dir . $workspace_params
+          echo Model downloaded..
+          ls
+
+      # Step 5: Login to the production environment using encoded credentials
+      - id: Azure_login_to_Prod
+        run: |
+          var1=${{ needs.download_prod_creds.outputs.output1 }}
+          echo $var1
+          token_cip=$(echo -n ${var1} | base64 --ignore-garbage --decode | base64 --ignore-garbage --decode)
+          var2=${{ needs.download_prod_creds.outputs.output2 }}
+          token_csp=$(echo -n ${var2} | base64 --ignore-garbage --decode | base64 --ignore-garbage --decode)
+          var3=${{ needs.download_prod_creds.outputs.output3 }}
+          token_sip=$(echo -n ${var3} | base64 --ignore-garbage --decode | base64 --ignore-garbage --decode)
+          var4=${{ needs.download_prod_creds.outputs.output4 }}
+          token_tip=$(echo -n ${var4} | base64 --ignore-garbage --decode | base64 --ignore-garbage --decode)
+          echo $token_cip
+          echo $token_csp
+          echo $token_sip
+          echo $token_tip
+          az login --service-principal --username ${token_cip} --tenant ${token_tip} --password ${token_csp}
+          az account set --subscription="${token_sip}"
+
+      # Step 6: Upload and register the model to the production workspace
+      - name: Upload and Register model to the PROD
+        run: |
+          var3=${{ needs.download_prod_creds.outputs.output3 }}
+          token_sip=$(echo -n ${var3} | base64 --ignore-garbage --decode | base64 --ignore-garbage --decode)
+          dst_workspace_params="--workspace-name ${{ env.DEST_WS }} --resource-group ${{ env.DEST_RG }} --subscription-id ${token_sip}"
+          az ml model register -n ${{ env.MODEL_NAME }} -p ./*.${{ env.MODEL_FORMAT }} $dst_workspace_params --tag '${{ github.event.inputs.environment }}Version=$VERSION'
+          ## More tags can be added here with multiple --tag statements like this --tag 'algorithm=xgboost'
+        shell: bash

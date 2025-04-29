@@ -1,0 +1,12 @@
+$schema: https://azuremlschemas.azureedge.net/latest/managedOnlineDeployment.schema.json
+name: blue
+endpoint_name: model-a
+model: azureml:modelA.pkl@latest
+code_configuration:
+  code: ./model/
+  scoring_script: score_rt_modelA.py
+environment: 
+  conda_file: ./model/conda_dependencies.yml
+  image: mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04:20230530.v1
+instance_type: Standard_DS3_v2
+instance_count: 1

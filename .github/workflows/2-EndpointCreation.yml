@@ -1,0 +1,114 @@
+name: 'Step 2-Realtime Deployment Prod'
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'DEV, TEST, PROD' # Specify the environment for deployment
+        required: true
+
+jobs:
+  realtime_inference_endpoint:
+    runs-on: ubuntu-latest
+    environment: ${{github.event.inputs.environment}}
+    env:
+      ENVN: 'Prod' # Specify the environment details (e.g., DEV, TST, PRD)
+      TASK: 'realtime_inference' # Specify the task type (e.g., training or batch inference)
+      COMPUTE_NAME: '' # Specify the compute cluster name
+      PIPELINE_NAME: '' # Specify the pipeline name
+      EXPERIMENT_NAME: '' # Specify the experiment name for tracking pipeline runs
+      WORKSPACE: '' # Specify the Azure ML workspace name
+      RESOURCE_GROUP: '' # Specify the Azure resource group name
+    steps:
+      # Step 1: Check out the repository
+      - name: Check Out Repository
+        uses: actions/checkout@v2
+
+      # Step 2: Install Azure CLI and required extensions
+      - name: Install az-cli
+        run: |
+            sudo apt remove azure-cli -y && sudo apt autoremove -y;
+            sudo apt-get update;
+            sudo apt-get install ca-certificates curl apt-transport-https lsb-release gnupg;
+            curl -sL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/microsoft.gpg > /dev/null;
+            AZ_REPO=$(lsb_release -cs);
+            echo "deb [arch=amd64] https://packages.microsoft.com/repos/azure-cli/ $AZ_REPO main" | sudo tee /etc/apt/sources.list.d/azure-cli.list;
+            sudo apt-get update;
+            apt-cache policy azure-cli;
+            sudo apt-get install azure-cli;
+            az extension remove -n azure-devops
+            az extension add -n azure-devops
+            az extension add -n ml
+            az extension add -n azure-cli-ml
+        shell: bash
+      
+      # Step 3: Login to Azure using service principal credentials
+      - name: Login to Azure
+        run: |
+            az login --service-principal --username ${{secrets.CLIENT_ID}} --tenant ${{secrets.TENANT_ID}} --password ${{secrets.CLIENT_SECRET}}
+            az account set --subscription=${{secrets.SUBSCRIPTION_ID}}
+
+      # Step 4: Setup compute resources
+      - name: Setup compute
+        run: |
+            az config set extension.dynamic_install_allow_preview=true
+            az extension add -n ml
+            workspace_params="--workspace-name ${{env.WORKSPACE}} --resource-group ${{env.RESOURCE_GROUP}}"
+            path="mlops-pipelines/configuration/compute/${{env.ENVN}}-training-compute.yml"
+            subnet_id=$"/subscriptions/${{secrets.subscription_id}}/resourceGroups/${{env.RESOURCE_GROUP}}/providers/Microsoft.Network/virtualNetworks/AMLVNET/subnets/COMPUTE-SUBNET"
+            
+            # Check if the compute resource exists
+            existing_compute=$(az ml compute show -n ${{env.COMPUTE_NAME}} $workspace_params) || create_compute=$(az ml compute create --type computeinstance --name ${{env.COMPUTE_NAME}} --subnet $subnet_id --file "$path" $workspace_params --identity-type SystemAssigned)
+            existing_state=$(az ml compute show -n ${{env.COMPUTE_NAME}} $workspace_params --query state)
+            
+            echo "Current state $existing_state"
+            if [$existing_compute]; then
+                echo "Compute does not exist"
+                # Uncomment the following line to create the compute if it doesn't exist
+                # az ml compute create --type computeinstance --name ${{env.COMPUTE_NAME}} --subnet $subnet_id --file $path $workspace_params --identity-type SystemAssigned
+            else
+                echo "Check compute status"
+                if [ "$existing_state" == "\"Stopped\"" ]; then
+                    az ml compute start -n ${{env.COMPUTE_NAME}} $workspace_params
+                    echo "Compute started"
+                fi
+                if [ "$existing_state" == "\"Starting\"" ]; then
+                    az ml compute start -n ${{env.COMPUTE_NAME}} $workspace_params
+                    echo "Compute started"
+                fi
+            fi
+            
+            echo "Finished setting up compute"
+        shell: bash
+        
+      # Step 5: Deploy real-time inference pipelines
+      - name: Realtime Inference Pipeline
+        run: |
+            az extension add -n azure-cli-ml
+            workspace_params="--workspace-name ${{env.WORKSPACE}} --resource-group ${{env.RESOURCE_GROUP}}"
+            az ml folder attach $workspace_params
+            cp .azureml/${{env.COMPUTE_NAME}} .
+            
+            # Copy conda dependencies for the environment
+            cp mlops-pipelines/configuration/environments/environment_realtimeinference/conda_dependencies.yml .azureml/conda_dependencies.yml
+            
+            # Install required Python packages
+            "/usr/bin/../../opt/az/bin/python3" -m pip install azureml-dataset-runtime --upgrade
+            "/usr/bin/../../opt/az/bin/python3" -m pip install applicationinsights --upgrade
+            
+            # Create and deploy endpoints for models A and B
+            echo Create endpoint model A
+            az ml online-endpoint create --name modelA -f mlops-pipelines/configuration/rt_endpoint_modelA.yml --workspace-name ${{env.WORKSPACE}} --resource-group ${{env.RESOURCE_GROUP}}
+            az ml online-deployment create --name green --endpoint modelA -f mlops-pipelines/configuration/rt_endpoint_config_modelA.yml --all-traffic --workspace-name ${{env.WORKSPACE}} --resource-group ${{env.RESOURCE_GROUP}}
+            
+            echo Create endpoint model B
+            az ml online-endpoint create --name modelB -f mlops-pipelines/configuration/rt_endpoint_modelB.yml --workspace-name ${{env.WORKSPACE}} --resource-group ${{env.RESOURCE_GROUP}}
+            az ml online-deployment create --name green --endpoint modelB -f mlops-pipelines/configuration/rt_endpoint_config_modelB.yml --all-traffic --workspace-name ${{env.WORKSPACE}} --resource-group ${{env.RESOURCE_GROUP}}
+
+            # echo Update model A
+            # az ml online-endpoint update --name modelA -f mlops-pipelines/configuration/rt_endpoint_modelA.yml --workspace-name ${{env.WORKSPACE}} --resource-group ${{env.RESOURCE_GROUP}}
+            # az ml online-deployment update --name green --endpoint modelA -f mlops-pipelines/configuration/rt_endpoint_config_modelA.yml --workspace-name ${{env.WORKSPACE}} --resource-group ${{env.RESOURCE_GROUP}}
+            # echo Update model B
+            # az ml online-endpoint update --name modelB -f mlops-pipelines/configuration/rt_endpoint_modelB.yml --workspace-name ${{env.WORKSPACE}} --resource-group ${{env.RESOURCE_GROUP}}
+            # az ml online-deployment update --name green --endpoint modelB -f mlops-pipelines/configuration/rt_endpoint_config_modelB.yml --workspace-name ${{env.WORKSPACE}} --resource-group ${{env.RESOURCE_GROUP}}
+        shell: bash

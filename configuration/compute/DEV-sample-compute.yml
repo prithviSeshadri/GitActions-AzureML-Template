@@ -1,0 +1,4 @@
+type: computeinstance
+# Parameters as passed to AmlComputeProvisioningConfiguration constructor
+# See: https://docs.microsoft.com/python/api/azureml-core/azureml.core.compute.amlcompute.amlcomputeprovisioningconfiguration
+size: STANDARD_DS3_v2
