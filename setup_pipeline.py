@@ -19,7 +19,7 @@ parser.add_argument('--tenant_id', dest='tenant_id', type=str,help='Tenant ID fo
 args_parsed = parser.parse_args()
 
 ws = Workspace.from_config()
-env = Environment.from_conda_specification(name='gom_sample_env', file_path='./src/gom_sample_env.yml')
+env = Environment.from_conda_specification(name='sample_env', file_path='./src/sample_env.yml')
 
 # Define a run configuration
 run_config = RunConfiguration()
@@ -42,6 +42,6 @@ data_ingest_step = PythonScriptStep(
 
 pipeline = Pipeline(workspace=ws, steps=[data_ingest_step])
 
-experiment = Experiment(workspace=ws, name="dataingestion-chokevalve")
+experiment = Experiment(workspace=ws, name="dataingestion")
 pipeline_run = experiment.submit(pipeline)
 print("Pipeline submitted. Run ID:", pipeline_run.id)
