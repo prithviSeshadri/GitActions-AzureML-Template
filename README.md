@@ -64,7 +64,7 @@ To create or add more pipelines, follow these steps:
 
 2. **Define Workflow Triggers**: Specify the trigger for the new workflow. You can use `workflow_dispatch` for manual triggers, other events like `push` or `pull_request`, or even a cron-based schedule.
 
-   - A cron job-based workflow example exists in the [CronJobs branch]([https://github.com/sede-x/GOM_GIT_ACTIONS_TEMPLATE/tree/CronJobs](https://github.com/prithviSeshadri/GitActions-AzureML-Template/tree/CronJobs)) of the repository. This type of workflow runs at specific times defined by a cron expression. 
+   - A cron job-based workflow example exists in the [CronJobs branch](https://github.com/prithviSeshadri/GitActions-AzureML-Template/tree/CronJobs) of the repository. This type of workflow runs at specific times defined by a cron expression. 
    - To set the cron expression, you can use tools like [Crontab Generator](https://crontab.cronhub.io/) to ensure the correct syntax. For example, `0 0 * * *` runs the workflow daily at midnight UTC.
 
 3. **Set Up Jobs**: Define the jobs required for the new pipeline. You can reuse steps from the existing workflow, such as setting up Python, installing dependencies, and configuring AzureML.
