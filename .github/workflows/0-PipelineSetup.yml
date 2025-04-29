@@ -6,21 +6,25 @@ name: Step 0 - Sample Pipeline using GitHub Actions and AzureML
 #       - main
 #       - Alternate Branch Name
 
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       environment:
+#         description: 'DevInfraTest, DEV, Test, Prod'
+#         required: true
+#       start_date:
+#         description: "Start date - mm/dd/yyyy: 2024-04-01"
+#         required: true
+#       end_date:
+#         description: "End date - mm/dd/yyyy: 2024-04-02"
+#         required: true
+#       frequency:
+#         description: "Frequency - 1s,10s,1min,10min,1h"
+#         required: true
+
 on:
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'DevInfraTest, DEV, Test, Prod'
-        required: true
-      start_date:
-        description: "Start date - mm/dd/yyyy: 2024-04-01"
-        required: true
-      end_date:
-        description: "End date - mm/dd/yyyy: 2024-04-02"
-        required: true
-      frequency:
-        description: "Frequency - 1s,10s,1min,10min,1h"
-        required: true
+  schedule:
+    - cron: "0 21 * * *"
 
 jobs:
   sample_pipeline:
